@@ -1,0 +1,203 @@
+
+============================================================
+Cell 0 - Type: code
+============================================================
+%pip install --upgrade langchain langchain-experimental langchain-google-genai python-dotenv pyvis
+
+
+============================================================
+Cell 1 - Type: code
+============================================================
+from dotenv import load_dotenv
+import os
+
+# Load the .env file
+load_dotenv()
+# Get API key from environment variable 
+# (make sure the key is present in .env file in the project directory)
+api_key = os.getenv("GOOGLE_API_KEY")
+
+
+============================================================
+Cell 2 - Type: markdown
+============================================================
+### LLM Graph Transformer
+Using Google Gemini Pro in all examples.
+
+
+============================================================
+Cell 3 - Type: code
+============================================================
+from langchain_experimental.graph_transformers import LLMGraphTransformer
+from langchain_core.documents import Document
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+# Initialize Gemini model
+llm = ChatGoogleGenerativeAI(
+    model="gemini-pro",
+    temperature=0
+)
+
+graph_transformer = LLMGraphTransformer(llm=llm)
+
+
+============================================================
+Cell 4 - Type: markdown
+============================================================
+### Extract graph data
+
+============================================================
+Cell 5 - Type: code
+============================================================
+text = """
+Clinisys is a global provider of LIMS and informatics solutions designed 
+to redefine the modern laboratory in the Healthcare, Life Sciences, 
+and Public Health sectors. Headquartered in Tucson and Chertsey, Clinisys enables over 3,000 laboratories across 34 countries to process millions of data results daily. 
+Their mission is to improve operational workflows to keep citizens and communities healthier and safer.
+"""
+
+============================================================
+Cell 6 - Type: code
+============================================================
+documents = [Document(page_content=text)]
+graph_documents = await graph_transformer.aconvert_to_graph_documents(documents)
+
+============================================================
+Cell 7 - Type: code
+============================================================
+print(f"Nodes:{graph_documents[0].nodes}")
+print(f"Relationships:{graph_documents[0].relationships}")
+
+============================================================
+Cell 8 - Type: markdown
+============================================================
+#### Visualize graph
+
+============================================================
+Cell 9 - Type: code
+============================================================
+from pyvis.network import Network
+
+def visualize_graph(graph_documents):
+
+    # Create network
+    net = Network(height="1200px", width="100%", directed=True,
+                      notebook=False, bgcolor="#222222", font_color="white")
+    
+    nodes = graph_documents[0].nodes
+    relationships = graph_documents[0].relationships
+
+    # Build lookup for valid nodes
+    node_dict = {node.id: node for node in nodes}
+    
+    # Filter out invalid edges and collect valid node IDs
+    valid_edges = []
+    valid_node_ids = set()
+    for rel in relationships:
+        if rel.source.id in node_dict and rel.target.id in node_dict:
+            valid_edges.append(rel)
+            valid_node_ids.update([rel.source.id, rel.target.id])
+
+
+    # Track which nodes are part of any relationship
+    connected_node_ids = set()
+    for rel in relationships:
+        connected_node_ids.add(rel.source.id)
+        connected_node_ids.add(rel.target.id)
+
+    # Add valid nodes
+    for node_id in valid_node_ids:
+        node = node_dict[node_id]
+        try:
+            net.add_node(node.id, label=node.id, title=node.type, group=node.type)
+        except:
+            continue  # skip if error
+
+    # Add valid edges
+    for rel in valid_edges:
+        try:
+            net.add_edge(rel.source.id, rel.target.id, label=rel.type.lower())
+        except:
+            continue  # skip if error
+
+    # Configure physics
+    net.set_options("""
+            {
+                "physics": {
+                    "forceAtlas2Based": {
+                        "gravitationalConstant": -100,
+                        "centralGravity": 0.01,
+                        "springLength": 200,
+                        "springConstant": 0.08
+                    },
+                    "minVelocity": 0.75,
+                    "solver": "forceAtlas2Based"
+                }
+            }
+            """)
+        
+    output_file = "knowledge_graph.html"
+    net.save_graph(output_file)
+    print(f"Graph saved to {os.path.abspath(output_file)}")
+
+    # Try to open in browser
+    try:
+        import webbrowser
+        webbrowser.open(f"file://{os.path.abspath(output_file)}")
+    except:
+        print("Could not open browser automatically")
+        
+# Run the function
+visualize_graph(graph_documents)
+
+============================================================
+Cell 10 - Type: markdown
+============================================================
+### Extract specific types of nodes
+
+============================================================
+Cell 11 - Type: code
+============================================================
+allowed_nodes = ["Person", "Organization", "Location", "Award", "ResearchField"]
+graph_transformer_nodes_defined = LLMGraphTransformer(llm=llm, allowed_nodes=allowed_nodes)
+graph_documents_nodes_defined = await graph_transformer_nodes_defined.aconvert_to_graph_documents(documents)
+
+============================================================
+Cell 12 - Type: code
+============================================================
+print(f"Nodes:{graph_documents_nodes_defined[0].nodes}")
+print(f"Relationships:{graph_documents_nodes_defined[0].relationships}")
+
+============================================================
+Cell 13 - Type: markdown
+============================================================
+### Extract specific types of relationships
+
+============================================================
+Cell 14 - Type: code
+============================================================
+allowed_nodes = ["Person", "Organization", "Location", "Award", "ResearchField"]
+allowed_relationships = [
+    ("Person", "WORKS_AT", "Organization"),
+    ("Person", "SPOUSE", "Person"),
+    ("Person", "AWARD", "Award"),
+    ("Organization", "IN_LOCATION", "Location"),
+    ("Person", "FIELD_OF_RESEARCH", "ResearchField")
+]
+graph_transformer_rel_defined = LLMGraphTransformer(
+  llm=llm,
+  allowed_nodes=allowed_nodes,
+  allowed_relationships=allowed_relationships
+)
+graph_documents_rel_defined = await graph_transformer_rel_defined.aconvert_to_graph_documents(documents)
+
+============================================================
+Cell 15 - Type: code
+============================================================
+# Visualize graph
+visualize_graph(graph_documents_rel_defined)
+
+============================================================
+Cell 16 - Type: code
+============================================================
+
